@@ -6,6 +6,7 @@ prefixed with ``GAZE_``, e.g. ``GAZE_CAMERA_INDEX=1``.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -13,6 +14,23 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _default_sqlite_path() -> Path:
+    """Return a default DB path that lives outside cloud-synced folders.
+
+    OneDrive / Dropbox / etc. lock the SQLite file mid-write and cause
+    "attempt to write a readonly database". We store under the user's local
+    app-data dir instead, which sync tools do not touch. Overridable via
+    ``GAZE_SQLITE_PATH``.
+    """
+    if os.name == "nt":
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    else:
+        base = Path(
+            os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share"
+        )
+    return base / "gaze_analytics" / "metrics.sqlite"
 
 
 class Settings(BaseSettings):
@@ -56,7 +74,7 @@ class Settings(BaseSettings):
 
     # ---- Aggregation & storage ---------------------------------------------
     aggregate_window_seconds: int = 5
-    sqlite_path: Path = REPO_ROOT / "data" / "metrics.sqlite"
+    sqlite_path: Path = Field(default_factory=_default_sqlite_path)
 
     # ---- Runtime ------------------------------------------------------------
     preview: bool = False
