@@ -24,6 +24,10 @@ data/
 models/
 !models/.gitkeep
 
+# Pipeline runtime logs (written by dashboard-launched subprocess)
+logs/
+!logs/.gitkeep
+
 # -----------------------------------------------------------------------------
 # Python
 # -----------------------------------------------------------------------------
