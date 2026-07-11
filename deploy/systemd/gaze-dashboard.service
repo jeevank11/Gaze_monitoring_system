@@ -1,0 +1,26 @@
+[Unit]
+Description=Gaze Analytics — Streamlit dashboard
+After=network.target gaze-analytics.service
+Wants=gaze-analytics.service
+
+[Service]
+Type=simple
+User=gaze
+Group=gaze
+WorkingDirectory=/opt/gaze-analytics
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/gaze-analytics/.venv/bin/streamlit run dashboard/app.py \
+    --server.address=0.0.0.0 --server.headless=true
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/gaze-analytics/data
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,28 @@
+name: test
+
+on:
+  push:
+    branches: [main, develop, "feature/**"]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Install
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Privacy invariant test
+        run: pytest tests/test_privacy_smoke.py -v
+      - name: Full test suite
+        run: pytest -q

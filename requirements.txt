@@ -1,0 +1,23 @@
+# Runtime dependencies (also declared in pyproject.toml).
+# Pinned major versions for reproducibility; run
+#   pip install -e .
+# for editable dev install, or
+#   pip install -r requirements.txt
+# for a plain install.
+
+opencv-python>=4.9,<5
+numpy>=1.26,<3
+mss>=9.0,<10
+ImageHash>=4.3,<5
+Pillow>=10.0,<12
+openvino>=2024.4,<2026
+openvino-dev>=2024.4,<2026
+filterpy>=1.4.5,<2
+scipy>=1.11,<2
+streamlit>=1.34,<2
+pandas>=2.2,<3
+plotly>=5.20,<7
+rich>=13.7,<15
+typer>=0.12,<1
+pydantic>=2.7,<3
+pydantic-settings>=2.2,<3

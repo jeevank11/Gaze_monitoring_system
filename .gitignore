@@ -1,0 +1,70 @@
+# -----------------------------------------------------------------------------
+# Privacy-first: never accidentally commit captured frames, video, or DBs.
+# -----------------------------------------------------------------------------
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+
+# Runtime data (aggregate metrics DB is regenerated per run)
+data/
+!data/.gitkeep
+*.sqlite
+*.sqlite-journal
+*.db
+*.db-wal
+*.db-shm
+
+# Downloaded models (fetched by scripts/download_models.py)
+models/
+!models/.gitkeep
+
+# -----------------------------------------------------------------------------
+# Python
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Virtual envs
+venv/
+.venv/
+env/
+ENV/
+
+# -----------------------------------------------------------------------------
+# IDE / OS
+# -----------------------------------------------------------------------------
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# -----------------------------------------------------------------------------
+# Build / release artifacts
+# -----------------------------------------------------------------------------
+*.spec
+release/

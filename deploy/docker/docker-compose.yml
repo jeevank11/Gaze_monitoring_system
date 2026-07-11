@@ -1,0 +1,34 @@
+services:
+  analytics:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    image: gaze-analytics:local
+    container_name: gaze-analytics
+    restart: unless-stopped
+    environment:
+      GAZE_DEVICE: AUTO
+      GAZE_HEADLESS: "true"
+      GAZE_LOG_LEVEL: INFO
+    volumes:
+      - ../../data:/app/data
+      - ../../models:/app/models:ro
+    # Uncomment on a Linux host to give the container the webcam:
+    # devices:
+    #   - /dev/video0:/dev/video0
+    # Uncomment for iGPU passthrough:
+    # devices:
+    #   - /dev/dri:/dev/dri
+
+  dashboard:
+    image: gaze-analytics:local
+    container_name: gaze-dashboard
+    restart: unless-stopped
+    command: ["streamlit", "run", "dashboard/app.py",
+              "--server.address=0.0.0.0", "--server.headless=true"]
+    ports:
+      - "8501:8501"
+    volumes:
+      - ../../data:/app/data:ro
+    depends_on:
+      - analytics

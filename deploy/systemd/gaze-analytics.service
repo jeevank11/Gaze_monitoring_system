@@ -1,0 +1,28 @@
+[Unit]
+Description=Gaze Analytics — capture + inference pipeline
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=gaze
+Group=gaze
+WorkingDirectory=/opt/gaze-analytics
+Environment=PYTHONUNBUFFERED=1
+Environment=GAZE_DEVICE=AUTO
+Environment=GAZE_HEADLESS=true
+ExecStart=/opt/gaze-analytics/.venv/bin/python -m gaze_analytics --headless --device AUTO
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/gaze-analytics/data
+
+[Install]
+WantedBy=multi-user.target
