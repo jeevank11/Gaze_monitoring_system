@@ -33,6 +33,21 @@ def _default_sqlite_path() -> Path:
     return base / "gaze_analytics" / "metrics.sqlite"
 
 
+def _default_ov_cache_dir() -> Path:
+    """Local disk cache for OpenVINO compiled kernels.
+
+    First run per model compiles GPU kernels (slow); subsequent runs load the
+    cached blobs (fast). Overridable via ``GAZE_OV_CACHE_DIR``.
+    """
+    if os.name == "nt":
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    else:
+        base = Path(
+            os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache"
+        )
+    return base / "gaze_analytics" / "ov_cache"
+
+
 class Settings(BaseSettings):
     """Runtime configuration for the gaze analytics pipeline."""
 
@@ -60,6 +75,12 @@ class Settings(BaseSettings):
     performance_hint: Literal["LATENCY", "THROUGHPUT", "CUMULATIVE_THROUGHPUT"] = "LATENCY"
     face_confidence_threshold: float = 0.7
     min_face_height_px: int = 80  # ignore faces smaller than this (filters screen artifacts)
+    # Tiled (sliced) face detection: split the frame into a grid and run the
+    # 300x300 SSD on each tile, then NMS. Dramatically improves small-face
+    # recall for crowds; ~4x detector cost when grid=2 (2x2 tiles).
+    face_tiled_detection: bool = False
+    face_tile_grid: int = 2  # NxN tiles when face_tiled_detection is True
+    face_tile_overlap: float = 0.15  # fractional overlap between tiles (avoids splitting faces on tile borders)
 
     # ---- Engagement thresholds ---------------------------------------------
     head_yaw_max_deg: float = 25.0
@@ -83,6 +104,9 @@ class Settings(BaseSettings):
     headless: bool = False
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     models_dir: Path = REPO_ROOT / "models"
+    ov_cache_dir: Path = Field(default_factory=_default_ov_cache_dir)
+    # Optional local video file to use in place of the webcam (for testing).
+    video_file: Path | None = None
 
 
 settings = Settings()

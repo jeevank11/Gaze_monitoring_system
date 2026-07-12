@@ -53,6 +53,8 @@ class HeadPoseEstimator:
         model_path = self._resolve_model_path(cfg.models_dir, precision)
         log.info("Loading %s (%s) on device=%s", _MODEL_NAME, precision, cfg.device)
         core = ov.Core()
+        cfg.ov_cache_dir.mkdir(parents=True, exist_ok=True)
+        core.set_property({"CACHE_DIR": str(cfg.ov_cache_dir)})
         model = core.read_model(str(model_path))
         self._compiled = core.compile_model(
             model,

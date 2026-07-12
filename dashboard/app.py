@@ -18,7 +18,7 @@ log lines only.
 from __future__ import annotations
 
 import sys
-from dataclasses import replace
+from dataclasses import fields, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -61,11 +61,107 @@ st.set_page_config(
     layout="wide",
 )
 
+# ---- Global theme / typography ------------------------------------------
+# Inject a small stylesheet so KPI tiles look like cards, headings use a
+# modern font, and spacing is consistent. Kept in one place so it's easy to
+# tweak later without touching layout code.
+st.markdown(
+    """
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+      html, body, [class*="css"], .stApp, .stMarkdown, .stMetric,
+      .stButton>button, .stSelectbox, .stTextInput, .stCheckbox {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+      }
+      code, pre, .stCode {
+        font-family: 'JetBrains Mono', 'Consolas', 'Menlo', monospace !important;
+      }
+
+      .block-container { padding-top: 1.75rem; padding-bottom: 3rem; }
+
+      .ga-hero {
+        display: flex; align-items: center; gap: 14px;
+        padding: 18px 22px; margin-bottom: 18px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #0f1c3f 0%, #1e3a8a 55%, #0ea5e9 100%);
+        color: white;
+        box-shadow: 0 6px 24px rgba(15, 28, 63, 0.18);
+      }
+      .ga-hero .ga-badge {
+        width: 42px; height: 42px; border-radius: 10px;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(255,255,255,0.14);
+        font-size: 22px;
+      }
+      .ga-hero h1 {
+        margin: 0; font-size: 1.55rem; font-weight: 700; letter-spacing: -0.01em;
+      }
+      .ga-hero .ga-sub {
+        margin: 2px 0 0; opacity: 0.82; font-size: 0.9rem;
+      }
+
+      h2, h3 { font-weight: 600 !important; letter-spacing: -0.01em; color: #0f172a; }
+
+      [data-testid="stMetric"] {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 14px 16px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        transition: box-shadow 0.15s ease, transform 0.15s ease;
+      }
+      [data-testid="stMetric"]:hover {
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+        transform: translateY(-1px);
+      }
+      [data-testid="stMetricLabel"] {
+        font-size: 0.78rem !important;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #64748b !important;
+        font-weight: 500 !important;
+      }
+      [data-testid="stMetricValue"] {
+        font-size: 1.9rem !important;
+        font-weight: 700 !important;
+        color: #0f172a !important;
+        line-height: 1.1;
+      }
+
+      .stButton>button {
+        border-radius: 8px;
+        font-weight: 500;
+        transition: transform 0.05s ease;
+      }
+      .stButton>button:active { transform: translateY(1px); }
+
+      section[data-testid="stSidebar"] { background: #f8fafc; }
+      section[data-testid="stSidebar"] h1,
+      section[data-testid="stSidebar"] h2,
+      section[data-testid="stSidebar"] h3 { color: #0f172a; font-weight: 600; }
+
+      hr { margin-top: 1.25rem !important; margin-bottom: 1.25rem !important; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 # ---- Session state defaults ----------------------------------------------
 
 def _init_state() -> None:
-    if "pipeline_cfg" not in st.session_state:
+    # Session state can hold a stale PipelineConfig from a previous run of
+    # the dashboard (before new fields were added). If the stored instance is
+    # missing any field the current dataclass declares, replace it with a
+    # fresh default so widget rendering doesn't AttributeError.
+    stored = st.session_state.get("pipeline_cfg")
+    expected_fields = {f.name for f in fields(PipelineConfig)}
+    if (
+        stored is None
+        or not isinstance(stored, PipelineConfig)
+        or any(not hasattr(stored, name) for name in expected_fields)
+    ):
         st.session_state.pipeline_cfg = PipelineConfig()
     if "last_action" not in st.session_state:
         st.session_state.last_action = ""
@@ -108,6 +204,68 @@ if stop_col.button("⏹ Stop", disabled=stop_disabled, width="stretch"):
 
 if st.session_state.last_action:
     st.sidebar.caption(st.session_state.last_action)
+
+st.sidebar.divider()
+st.sidebar.subheader("Presets")
+_preset_disabled = pipeline_status.running
+_p1, _p2 = st.sidebar.columns(2)
+if _p1.button(
+    "👤 Signage",
+    disabled=_preset_disabled,
+    width="stretch",
+    help=(
+        "Near-tier viewer analytics: a handful of people close to the screen. "
+        "Runs the full stack (head pose + gaze + age/gender) for rich per-viewer "
+        "attention. Min face height 80 px so posters/TVs behind the camera are ignored."
+    ),
+):
+    st.session_state.pipeline_cfg = replace(
+        current_cfg,
+        device="AUTO",
+        detect_faces=True,
+        head_pose=True,
+        gaze=True,
+        age_gender=True,
+        track=True,
+        segment_content=True,
+        sink=True,
+        preview=True,
+        min_face_height_px=80,
+        face_confidence_threshold=0.7,
+        tiled_detection=False,
+        tile_grid=2,
+    )
+    st.session_state.last_action = "Preset: Signage (near-tier, few viewers)"
+    st.rerun()
+
+if _p2.button(
+    "👥 Crowd",
+    disabled=_preset_disabled,
+    width="stretch",
+    help=(
+        "Aggregate analytics for 20+ people in frame. Turns OFF gaze and "
+        "age/gender (too expensive per face) and lowers the min face height "
+        "to 25 px so distant heads still count. Head-pose attention is kept."
+    ),
+):
+    st.session_state.pipeline_cfg = replace(
+        current_cfg,
+        device="GPU",
+        detect_faces=True,
+        head_pose=True,
+        gaze=False,
+        age_gender=False,
+        track=True,
+        segment_content=True,
+        sink=True,
+        preview=True,
+        min_face_height_px=25,
+        face_confidence_threshold=0.4,
+        tiled_detection=True,
+        tile_grid=2,
+    )
+    st.session_state.last_action = "Preset: Crowd (aggregate, many viewers)"
+    st.rerun()
 
 st.sidebar.divider()
 st.sidebar.subheader("Configuration")
@@ -166,6 +324,65 @@ preview = st.sidebar.checkbox(
     help="Opens a local OpenCV window showing the privacy-masked feed.",
 )
 
+st.sidebar.markdown("**Input source**")
+video_file_input = st.sidebar.text_input(
+    "Video file (optional)",
+    value=current_cfg.video_file or "",
+    disabled=_config_disabled,
+    help="Path to a local video file to use in place of the webcam. Leave blank to use the camera.",
+)
+# Users often paste paths wrapped in quotes (Windows "Copy as path" adds them);
+# strip surrounding quotes/whitespace so OpenCV gets the raw filename.
+_video_file = video_file_input.strip().strip('"').strip("'") or None
+
+min_face_height_px = st.sidebar.slider(
+    "Min face height (px)",
+    min_value=5,
+    max_value=200,
+    value=int(current_cfg.min_face_height_px),
+    step=5,
+    disabled=_config_disabled,
+    help=(
+        "Faces smaller than this are ignored. Default 80 is safe for live "
+        "signage (rejects faces on nearby screens). Drop to ~30 when testing "
+        "with recorded videos where people appear small."
+    ),
+)
+
+face_confidence_threshold = st.sidebar.slider(
+    "Face detector confidence",
+    min_value=0.20,
+    max_value=0.95,
+    value=float(current_cfg.face_confidence_threshold),
+    step=0.05,
+    disabled=_config_disabled,
+    help=(
+        "Confidence floor for face detections. Default 0.70 gives clean single-viewer "
+        "tracking. Drop to ~0.40 for crowds so more small/partial faces get through "
+        "(at the cost of a few false positives)."
+    ),
+)
+
+tiled_detection = st.sidebar.checkbox(
+    "Tiled face detection (crowd mode)",
+    value=bool(current_cfg.tiled_detection),
+    disabled=_config_disabled,
+    help=(
+        "Split the frame into an NxN grid and run the face detector on each tile. "
+        "Roughly doubles the count of small faces detected in crowds. Costs ~NxN "
+        "more detector time per frame (still real-time in crowd mode)."
+    ),
+)
+tile_grid = st.sidebar.slider(
+    "Tile grid (NxN)",
+    min_value=2,
+    max_value=4,
+    value=int(current_cfg.tile_grid),
+    step=1,
+    disabled=_config_disabled or not tiled_detection,
+    help="2 = 2x2 = 4 tiles (recommended). 3 = 3x3 = 9 tiles (denser crowds, ~2x slower).",
+)
+
 # Snapshot the sidebar into a new immutable config for the next Start click.
 if not pipeline_status.running:
     st.session_state.pipeline_cfg = replace(
@@ -181,6 +398,11 @@ if not pipeline_status.running:
         gaze=gaze_flag,
         sink=sink,
         preview=preview,
+        video_file=_video_file,
+        min_face_height_px=min_face_height_px,
+        face_confidence_threshold=face_confidence_threshold,
+        tiled_detection=tiled_detection,
+        tile_grid=tile_grid,
     )
 
 with st.sidebar.expander("Equivalent CLI command", expanded=False):
@@ -216,10 +438,52 @@ st.sidebar.markdown(
     "- SQLite stores counters + phash only"
 )
 
+# ---- Danger zone: wipe SQLite -------------------------------------------
+
+with st.sidebar.expander("Danger zone", expanded=False):
+    _wipe_disabled = pipeline_status.running
+    if _wipe_disabled:
+        st.caption("Stop the pipeline before clearing data.")
+    _confirm_wipe = st.checkbox(
+        "Yes, delete all metrics and segments",
+        value=False,
+        disabled=_wipe_disabled,
+        key="_confirm_wipe",
+    )
+    if st.button(
+        "🗑 Clear all data",
+        disabled=_wipe_disabled or not _confirm_wipe,
+        width="stretch",
+    ):
+        _wipe_path = Path(db_path_str)
+        if not _wipe_path.exists():
+            st.warning(f"Nothing to clear — no database at `{_wipe_path}`.")
+        else:
+            import sqlite3 as _sqlite3
+            try:
+                with _sqlite3.connect(str(_wipe_path)) as _conn:
+                    _conn.execute("DELETE FROM metrics")
+                    _conn.execute("DELETE FROM segments")
+                    _conn.commit()
+                st.success("Cleared all metrics and segments.")
+                st.rerun()
+            except _sqlite3.OperationalError as err:
+                st.error(f"Could not clear database: {err}")
+
 # ---- Header ---------------------------------------------------------------
 
-st.title("Gaze Analytics — Signage Engagement")
-st.caption("Privacy-preserving audience analytics on Intel CPU/iGPU.")
+st.markdown(
+    """
+    <div class="ga-hero">
+      <div class="ga-badge">👁</div>
+      <div>
+        <h1>Gaze Analytics — Signage Engagement</h1>
+        <div class="ga-sub">Privacy-preserving audience analytics on Intel CPU / iGPU</div>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ---- Status card ----------------------------------------------------------
 

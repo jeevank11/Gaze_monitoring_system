@@ -49,12 +49,28 @@ class PipelineConfig:
     sink: bool = True
     preview: bool = True
     log_level: str = "INFO"
+    # Optional local video file to feed in place of the webcam (for testing).
+    video_file: str | None = None
+    # Minimum face height in pixels to accept as a viewer. Lower this when
+    # testing with recorded videos where faces appear smaller than the 80 px
+    # signage default (see Settings.min_face_height_px).
+    min_face_height_px: int = 80
+    # Face detector confidence floor. Default 0.7 is safe for single viewers;
+    # drop to ~0.4 for crowds where many small/partial faces score lower.
+    face_confidence_threshold: float = 0.7
+    # Tiled/sliced face detection: split the frame into a grid and run the
+    # detector on each tile. Big small-face recall win for crowds.
+    tiled_detection: bool = False
+    tile_grid: int = 2
 
     def as_cli_args(self) -> list[str]:
         args: list[str] = [
             "--device", self.device,
             "--privacy-mode", self.privacy_mode,
             "--log-level", self.log_level,
+            "--min-face-height", str(self.min_face_height_px),
+            "--face-confidence", f"{self.face_confidence_threshold:.3f}",
+            "--tile-grid", str(self.tile_grid),
         ]
         toggles: list[tuple[str, str]] = [
             ("detect_faces", "detect-faces"),
@@ -65,9 +81,12 @@ class PipelineConfig:
             ("gaze", "gaze"),
             ("sink", "sink"),
             ("preview", "preview"),
+            ("tiled_detection", "tiled-detection"),
         ]
         for attr, flag in toggles:
             args.append(f"--{flag}" if getattr(self, attr) else f"--no-{flag}")
+        if self.video_file:
+            args.extend(["--video", self.video_file])
         return args
 
 
@@ -188,15 +207,38 @@ def stop(*, pid_path: Path = DEFAULT_PID_PATH, timeout: float = 5.0) -> bool:
     except psutil.NoSuchProcess:
         pid_path.unlink(missing_ok=True)
         return False
+    # On Windows the venv python.exe is a shim that spawns a second interpreter,
+    # so we must signal / kill the whole process tree, not just the direct child.
+    try:
+        children = proc.children(recursive=True)
+    except psutil.NoSuchProcess:
+        children = []
+    procs = [proc, *children]
+
+    # Best-effort graceful shutdown. Any failure here (WinError 87 when the
+    # process wasn't launched in its own console group, NoSuchProcess races,
+    # etc.) falls through to the force-kill below rather than propagating.
     try:
         if os.name == "nt":
             proc.send_signal(signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
         else:
-            proc.send_signal(signal.SIGINT)
-        proc.wait(timeout=timeout)
-    except psutil.TimeoutExpired:
-        proc.kill()
-    except psutil.NoSuchProcess:
+            for p in procs:
+                try:
+                    p.send_signal(signal.SIGINT)
+                except psutil.NoSuchProcess:
+                    pass
+        _gone, alive = psutil.wait_procs(procs, timeout=timeout)
+    except (OSError, psutil.Error):
+        alive = [p for p in procs if p.is_running()]
+
+    for p in alive:
+        try:
+            p.kill()
+        except psutil.NoSuchProcess:
+            pass
+    try:
+        psutil.wait_procs(alive, timeout=2.0)
+    except psutil.Error:
         pass
     pid_path.unlink(missing_ok=True)
     return True

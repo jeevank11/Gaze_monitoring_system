@@ -12,7 +12,9 @@ Run with:
 from __future__ import annotations
 
 import logging
+import signal
 import time
+from pathlib import Path
 from typing import Annotated
 
 import cv2
@@ -122,6 +124,10 @@ def _match_track_to_detection(
 def run(
     device: Annotated[str, typer.Option(help="OpenVINO device: AUTO, CPU, GPU, NPU")] = "AUTO",
     camera: Annotated[int, typer.Option(help="Webcam index")] = 0,
+    video: Annotated[
+        Path | None,
+        typer.Option(help="Local video file to use in place of the webcam (for testing)"),
+    ] = None,
     preview: Annotated[bool, typer.Option(help="Show debug preview window")] = False,
     headless: Annotated[bool, typer.Option(help="No window; log FPS periodically")] = False,
     detect_faces: Annotated[
@@ -151,11 +157,53 @@ def run(
             help="Preview mask: off | blur | pixelate | silhouette (Sprint 7)",
         ),
     ] = "blur",
+    min_face_height: Annotated[
+        int,
+        typer.Option(
+            help=(
+                "Minimum face height in pixels to accept as a viewer. "
+                "Default 80 (signage-safe); lower to 30-40 for recorded-video testing."
+            ),
+        ),
+    ] = 80,
+    face_confidence: Annotated[
+        float,
+        typer.Option(
+            help=(
+                "Face-detector confidence floor (0.0-1.0). Default 0.7 (single viewer). "
+                "Lower to ~0.4 for crowds so more small/partial faces pass through."
+            ),
+        ),
+    ] = 0.7,
+    tiled_detection: Annotated[
+        bool,
+        typer.Option(
+            help=(
+                "Slice the frame into an NxN grid and run the face detector on each tile "
+                "before merging with NMS. Greatly improves small-face recall in crowds "
+                "at ~NxN detector cost."
+            ),
+        ),
+    ] = False,
+    tile_grid: Annotated[
+        int,
+        typer.Option(
+            help="Grid size for --tiled-detection (e.g. 2 = 2x2 tiles, 3 = 3x3).",
+        ),
+    ] = 2,
     log_level: Annotated[str, typer.Option(help="DEBUG / INFO / WARNING / ERROR")] = "INFO",
 ) -> None:
     """Start the capture + inference loop."""
     _configure_logging(log_level)
     log = logging.getLogger("gaze_analytics")
+
+    # On Windows, the dashboard's Stop button delivers CTRL_BREAK_EVENT, which
+    # Python surfaces as SIGBREAK — not SIGINT — so we install a handler that
+    # raises KeyboardInterrupt to trigger the same clean shutdown path as Ctrl+C.
+    if hasattr(signal, "SIGBREAK"):
+        def _on_break(_signum: int, _frame: object) -> None:  # pragma: no cover
+            raise KeyboardInterrupt
+        signal.signal(signal.SIGBREAK, _on_break)  # type: ignore[attr-defined]
 
     if privacy_mode not in {"off", "blur", "pixelate", "silhouette"}:
         raise typer.BadParameter(
@@ -165,8 +213,13 @@ def run(
 
     settings.device = device  # type: ignore[assignment]
     settings.camera_index = camera
+    settings.video_file = video
     settings.preview = preview
     settings.headless = headless
+    settings.min_face_height_px = min_face_height
+    settings.face_confidence_threshold = face_confidence
+    settings.face_tiled_detection = tiled_detection
+    settings.face_tile_grid = max(1, int(tile_grid))
 
     log.info("gaze-analytics v%s starting", __version__)
     log.info(
