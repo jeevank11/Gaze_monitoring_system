@@ -39,13 +39,34 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     return sqlite3.connect(str(db_path))
 
 
-def metrics_frame(db_path: Path, window_minutes: int | None = 60) -> pd.DataFrame:
+def _latest_run_start(db_path: Path) -> str | None:
+    """Return the started_at timestamp of the most recent pipeline run, or None."""
+    with closing(_connect(db_path)) as conn:
+        try:
+            row = conn.execute(
+                "SELECT started_at FROM runs ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            return row[0] if row else None
+        except sqlite3.OperationalError:
+            return None  # runs table doesn't exist yet
+
+
+def metrics_frame(
+    db_path: Path,
+    window_minutes: int | None = 60,
+    current_run_only: bool = False,
+) -> pd.DataFrame:
     """Return recent aggregate rows, most-recent last (chart-friendly)."""
     with closing(_connect(db_path)) as conn:
         query = "SELECT ts, window_seconds, viewers, attending, avg_dwell_ms, " \
                 "male_count, female_count, segment_id FROM metrics"
         params: tuple = ()
-        if window_minutes is not None:
+        if current_run_only:
+            run_start = _latest_run_start(db_path)
+            if run_start:
+                query += " WHERE ts >= ?"
+                params = (run_start,)
+        elif window_minutes is not None:
             cutoff_dt = datetime.now(tz=UTC) - timedelta(minutes=window_minutes)
             cutoff = (
                 cutoff_dt.isoformat(timespec="milliseconds").replace("+00:00", "Z")
@@ -199,4 +220,4 @@ def content_effectiveness(metrics: pd.DataFrame) -> pd.DataFrame:
     # Drop intermediate columns
     grouped = grouped.drop(columns=["total_attending", "total_viewers"])
 
-    return grouped.sort_values("attention_rate", ascending=False).reset_index(drop=True)
+    return grouped.sort_values("local_time", ascending=False).reset_index(drop=True)

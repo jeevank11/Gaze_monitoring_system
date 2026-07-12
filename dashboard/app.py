@@ -415,16 +415,18 @@ db_path_str = st.sidebar.text_input(
 )
 window_label = st.sidebar.selectbox(
     "Window",
-    options=["Last 5 min", "Last 15 min", "Last 1 hour", "Last 24 hours", "All time"],
-    index=2,
+    options=["Current run", "Last 5 min", "Last 15 min", "Last 30 min", "Last 1 hour", "All time"],
+    index=0,
 )
 _WINDOW_MAP: dict[str, int | None] = {
+    "Current run": None,
     "Last 5 min": 5,
     "Last 15 min": 15,
+    "Last 30 min": 30,
     "Last 1 hour": 60,
-    "Last 24 hours": 24 * 60,
     "All time": None,
 }
+_current_run_only = window_label == "Current run"
 window_minutes = _WINDOW_MAP[window_label]
 
 auto_refresh = st.sidebar.checkbox("Auto-refresh (5s)", value=True)
@@ -517,8 +519,13 @@ else:
     _render_charts = True
 
 if _render_charts:
-    metrics_df = metrics_frame(db_path, window_minutes=window_minutes)
-    segments_df = segments_frame(db_path, limit=20)
+    # All data follows the window selection
+    metrics_df = metrics_frame(
+        db_path,
+        window_minutes=window_minutes,
+        current_run_only=_current_run_only,
+    )
+    segments_df = segments_frame(db_path, limit=50)
     kpis: Kpis = compute_kpis(metrics_df, segments_df)
 
     # ---- KPI tiles --------------------------------------------------------
@@ -637,7 +644,9 @@ if _render_charts:
             display_df = effectiveness_df[[
                 "local_time", "attention_rate", "avg_viewers",
                 "avg_attending", "avg_dwell_ms", "total_windows",
-            ]].rename(columns={
+            ]].copy()
+            display_df["avg_dwell_ms"] = display_df["avg_dwell_ms"].round(0).astype(int)
+            display_df = display_df.rename(columns={
                 "local_time": "Content Started",
                 "attention_rate": "Attention %",
                 "avg_viewers": "Avg Viewers",

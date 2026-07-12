@@ -44,15 +44,26 @@ def _thumbnail_to_b64(thumbnail: np.ndarray | None) -> str | None:
 class SqliteSink:
     """Aggregate-only SQLite writer. One row per closed window; one row per segment."""
 
+    MAX_RUNS_KEPT = 5  # keep current + last 5 runs
+
     def __init__(self, db_path: Path) -> None:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._path = db_path
         self._conn = sqlite3.connect(str(db_path))
         self._conn.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
+        # Ensure runs table exists
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TEXT NOT NULL
+            )
+        """)
         self._conn.commit()
-        # Reference point for translating monotonic clock to wall clock.
+        # Register this run and clean old data
         self._ref_monotonic = time.monotonic()
         self._ref_wall = datetime.now(tz=UTC)
+        self._run_id = self._register_run()
+        self._cleanup_old_runs()
         log.info("SQLite sink ready at %s", db_path)
 
     # -- public API -----------------------------------------------------------
@@ -120,6 +131,47 @@ class SqliteSink:
         self._conn.close()
 
     # -- internals ------------------------------------------------------------
+
+    def _register_run(self) -> int:
+        """Record this run in the runs table and return its ID."""
+        cursor = self._conn.execute(
+            "INSERT INTO runs (started_at) VALUES (?)",
+            (self._ref_wall.isoformat(timespec="milliseconds").replace("+00:00", "Z"),),
+        )
+        self._conn.commit()
+        return cursor.lastrowid  # type: ignore[return-value]
+
+    def _cleanup_old_runs(self) -> None:
+        """Keep only the last MAX_RUNS_KEPT runs (+ current). Delete older data."""
+        rows = self._conn.execute(
+            "SELECT id, started_at FROM runs ORDER BY id DESC"
+        ).fetchall()
+        if len(rows) <= self.MAX_RUNS_KEPT + 1:
+            return  # nothing to clean
+        # Runs to delete (oldest beyond the limit)
+        runs_to_delete = rows[self.MAX_RUNS_KEPT + 1:]
+        if not runs_to_delete:
+            return
+        oldest_kept_ts = rows[self.MAX_RUNS_KEPT][1]  # started_at of the oldest kept run
+        # Delete metrics older than the oldest kept run
+        deleted_metrics = self._conn.execute(
+            "DELETE FROM metrics WHERE ts < ?", (oldest_kept_ts,)
+        ).rowcount
+        # Delete segments older than the oldest kept run
+        deleted_segments = self._conn.execute(
+            "DELETE FROM segments WHERE started_at < ?", (oldest_kept_ts,)
+        ).rowcount
+        # Delete old run records
+        old_ids = [r[0] for r in runs_to_delete]
+        self._conn.execute(
+            f"DELETE FROM runs WHERE id IN ({','.join('?' * len(old_ids))})", old_ids
+        )
+        self._conn.commit()
+        if deleted_metrics or deleted_segments:
+            log.info(
+                "Cleaned %d old metrics rows and %d segments (keeping last %d runs)",
+                deleted_metrics, deleted_segments, self.MAX_RUNS_KEPT,
+            )
 
     def _segment_id(self, segment: ContentSegment) -> str:
         started_iso = _iso_utc(segment.first_seen_ts, self._ref_monotonic, self._ref_wall)
