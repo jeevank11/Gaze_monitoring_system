@@ -42,7 +42,10 @@ def test_no_banned_apis_in_src() -> None:
                 continue
             for name, pattern in BANNED_PATTERNS.items():
                 if re.search(pattern, line):
-                    offenders.append(f"{py.relative_to(SRC.parent)}:{line_no} {name} -> {line.strip()}")
+                    offenders.append(
+                        f"{py.relative_to(SRC.parent)}:{line_no} "
+                        f"{name} -> {line.strip()}"
+                    )
     assert not offenders, (
         "Privacy invariant violated. Banned APIs found:\n  " + "\n  ".join(offenders)
     )

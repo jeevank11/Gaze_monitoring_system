@@ -1,0 +1,49 @@
+feat(dashboard): Gaze Insights page, Gaze Live rebrand, shared theme, HTS deck
+
+Dashboard rename + multipage restructure
+- Rename dashboard/app.py -> dashboard/📺_Gaze_Live.py (Streamlit sidebar
+  picks up the emoji + label directly from the filename)
+- Extract inline CSS into new dashboard/theme.py; inject_theme() is
+  shared across pages so sidebar nav, widgets and typography stay
+  consistent
+- Update page_title, page_icon, hero title to
+  "Gaze Analytics — Signage Engagement"
+- Update the 4 external references: deploy/docker/docker-compose.yml,
+  scripts/run_all.ps1, .github/skills/run-dashboard/SKILL.md,
+  docs/ARCHITECTURE.md
+
+New Gaze Insights page (dashboard/pages/2_👁️_Gaze_Insights.py)
+- Layer 1: KPI strip — Impressions, Attention time, Avg viewing
+  duration, Attention rate, M/F ratio with deltas vs prior window
+- Layer 2: Audience engagement trend, auto-rebinned 5s → 1min → 15min
+  → 1h based on the selected window
+- Layer 2b: Top content by attention time — leaderboard with
+  data-URL thumbnails and progress bars
+- Layer 3: Gender split donut (full width; recent-segments table
+  removed per user feedback)
+
+Business layer (dashboard/business.py)
+- Aggregate-only SQL for gaze_kpis, top_by_attention_time,
+  insights_kpis, all_segments, classify_quadrants,
+  top_by_impressions, bottom_by_attention
+- GazeKpis dataclass now carries attention_time_seconds plus deltas
+  vs the equal-length prior window
+
+Tests
+- 17 new tests in tests/test_business.py cover gaze_kpis,
+  top_by_attention_time and empty/missing-DB edge cases
+- tests/test_dashboard_process.py: extend _FakeProc mock with
+  children/is_running/kill and patch psutil.wait_procs for the
+  Windows tree-kill path added upstream
+- 121 tests pass, ruff clean on all new code
+
+Presentation
+- Reproducible pitch deck at presentations/GazeAnalytics_HackTheStack.pptx
+- Generator: scripts/make_hack_the_stack_deck.py (python-pptx is a
+  dev-only convenience and is NOT tracked in pyproject.toml)
+
+Housekeeping
+- .gitignore: streamlit.out.log, streamlit.err.log, .gitmsg.tmp
+
+Privacy contract unchanged: no frames written, no face recognition,
+no embeddings, no cloud calls. Only aggregate rows leave the pipeline.

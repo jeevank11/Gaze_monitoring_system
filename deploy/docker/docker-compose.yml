@@ -24,7 +24,7 @@ services:
     image: gaze-analytics:local
     container_name: gaze-dashboard
     restart: unless-stopped
-    command: ["streamlit", "run", "dashboard/app.py",
+    command: ["streamlit", "run", "dashboard/📺_Gaze_Live.py",
               "--server.address=0.0.0.0", "--server.headless=true"]
     ports:
       - "8501:8501"

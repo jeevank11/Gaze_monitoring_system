@@ -216,7 +216,18 @@ def test_stop_sends_signal_and_clears_pidfile(tmp_path, monkeypatch):
         def wait(self, timeout):
             return 0
 
+        def children(self, recursive=False):  # match psutil API
+            _ = recursive
+            return []
+
+        def is_running(self):
+            return False
+
+        def kill(self):
+            pass
+
     monkeypatch.setattr(dp.psutil, "Process", lambda pid: _FakeProc(pid))
+    monkeypatch.setattr(dp.psutil, "wait_procs", lambda procs, timeout=None: (procs, []))
 
     assert stop(pid_path=pid_file) is True
     assert not pid_file.exists()

@@ -67,7 +67,11 @@ class FaceDetector:
         conf_threshold: float | None = None,
     ) -> None:
         self._cfg = cfg
-        self._conf_threshold = conf_threshold if conf_threshold is not None else cfg.face_confidence_threshold
+        self._conf_threshold = (
+            conf_threshold
+            if conf_threshold is not None
+            else cfg.face_confidence_threshold
+        )
         self._min_face_height = cfg.min_face_height_px
         self._tiled = bool(cfg.face_tiled_detection)
         self._tile_grid = max(1, int(cfg.face_tile_grid))

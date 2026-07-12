@@ -83,20 +83,39 @@ def metrics_frame(
     return df
 
 
-def segments_frame(db_path: Path, limit: int = 20) -> pd.DataFrame:
-    """Return the ``limit`` most recent content segments."""
+def segments_frame(
+    db_path: Path,
+    limit: int = 20,
+    only_with_viewers: bool = False,
+) -> pd.DataFrame:
+    """Return the ``limit`` most recent content segments.
+
+    When ``only_with_viewers`` is True, filter to segments that overlap at
+    least one aggregate window with ``viewers > 0``. The underlying tables
+    stay unchanged — this is a presentation filter only.
+    """
     with closing(_connect(db_path)) as conn:
-        df = pd.read_sql_query(
+        if only_with_viewers:
+            query = """
+                SELECT id, started_at, ended_at, duration_ms, phash,
+                       thumbnail_b64, segment_type
+                FROM segments
+                WHERE id IN (
+                    SELECT DISTINCT segment_id FROM metrics
+                    WHERE viewers > 0 AND segment_id IS NOT NULL
+                )
+                ORDER BY started_at DESC
+                LIMIT ?
             """
-            SELECT id, started_at, ended_at, duration_ms, phash,
-                   thumbnail_b64, segment_type
-            FROM segments
-            ORDER BY started_at DESC
-            LIMIT ?
-            """,
-            conn,
-            params=(limit,),
-        )
+        else:
+            query = """
+                SELECT id, started_at, ended_at, duration_ms, phash,
+                       thumbnail_b64, segment_type
+                FROM segments
+                ORDER BY started_at DESC
+                LIMIT ?
+            """
+        df = pd.read_sql_query(query, conn, params=(limit,))
     if not df.empty:
         local_tz = datetime.now().astimezone().tzinfo
         df["started_at"] = pd.to_datetime(df["started_at"], utc=True, errors="coerce")

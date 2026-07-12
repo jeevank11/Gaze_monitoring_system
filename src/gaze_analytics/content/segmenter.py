@@ -54,7 +54,12 @@ class ContentSegmenter:
 
         distance = hamming(ph, self._current.phash)
         if distance > self._cfg.phash_hamming_threshold:
-            return self._start_segment(ph, screen_bgr, timestamp)
+            # pHash has drifted enough to look like new content, but suppress
+            # sub-``min_segment_seconds`` flicker (video frames, animations,
+            # transient overlays) so downstream aggregates stay meaningful.
+            age = timestamp - self._current.first_seen_ts
+            if age >= self._cfg.min_segment_seconds:
+                return self._start_segment(ph, screen_bgr, timestamp)
 
         self._current.last_seen_ts = timestamp
         return self._current
