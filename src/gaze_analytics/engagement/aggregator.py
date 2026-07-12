@@ -45,8 +45,16 @@ class WindowMetrics:
 @dataclass
 class _TrackState:
     max_dwell_ms: int = 0
-    last_gender: Gender | None = None
+    male_votes: int = 0
+    female_votes: int = 0
     was_attending: bool = False
+
+    @property
+    def voted_gender(self) -> Gender | None:
+        """Return the majority-voted gender, or None if no votes recorded."""
+        if self.male_votes == 0 and self.female_votes == 0:
+            return None
+        return "M" if self.male_votes > self.female_votes else "F"
 
 
 @dataclass
@@ -70,13 +78,17 @@ class RollingAggregator:
         attending_ids: set[int],
         gender_by_id: dict[int, Gender],
         timestamp: float,
+        face_count: int | None = None,
     ) -> None:
         """Fold one frame's observations into the current window."""
         if self._window is None:
             self._window = _WindowState(started_ts=timestamp)
 
         w = self._window
-        w.max_viewers = max(w.max_viewers, len(tracks))
+        # Use actual face detections (not tracks) for viewer count to avoid
+        # inflating the number when the tracker briefly creates ghost tracks.
+        viewers_this_frame = face_count if face_count is not None else len(tracks)
+        w.max_viewers = max(w.max_viewers, viewers_this_frame)
         w.max_attending = max(w.max_attending, len(attending_ids))
 
         for trk in tracks:
@@ -85,8 +97,10 @@ class RollingAggregator:
             if dwell_ms > state.max_dwell_ms:
                 state.max_dwell_ms = dwell_ms
             g = gender_by_id.get(trk.track_id)
-            if g is not None:
-                state.last_gender = g
+            if g == "M":
+                state.male_votes += 1
+            elif g == "F":
+                state.female_votes += 1
             if trk.track_id in attending_ids:
                 state.was_attending = True
 
@@ -123,8 +137,8 @@ class RollingAggregator:
             if n_tracks > 0
             else 0
         )
-        male = sum(1 for s in w.tracks.values() if s.last_gender == "M")
-        female = sum(1 for s in w.tracks.values() if s.last_gender == "F")
+        male = sum(1 for s in w.tracks.values() if s.voted_gender == "M")
+        female = sum(1 for s in w.tracks.values() if s.voted_gender == "F")
         metrics = WindowMetrics(
             window_start_ts=w.started_ts,
             window_end_ts=timestamp,

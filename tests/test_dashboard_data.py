@@ -106,8 +106,9 @@ def test_kpis_come_from_the_latest_row(populated_db) -> None:
     metrics = metrics_frame(populated_db, window_minutes=None)
     segments = segments_frame(populated_db)
     kpis = compute_kpis(metrics, segments)
-    assert kpis.viewers_now == 4
-    assert kpis.attending_now == 3
+    assert kpis.peak_viewers == 4
+    assert kpis.peak_attending == 3
+    assert kpis.attention_rate == pytest.approx(66.7, abs=0.1)  # 4/(2+4)*100
     assert kpis.total_segments == 1
     assert kpis.total_rows == 2
     assert kpis.avg_dwell_ms == pytest.approx(1200.0)  # (800 + 1600) / 2
@@ -119,8 +120,8 @@ def test_kpis_are_zero_when_empty(tmp_path) -> None:
     metrics = metrics_frame(tmp_path / "empty.sqlite", window_minutes=None)
     segments = segments_frame(tmp_path / "empty.sqlite")
     kpis = compute_kpis(metrics, segments)
-    assert kpis.viewers_now == 0
-    assert kpis.attending_now == 0
+    assert kpis.peak_viewers == 0
+    assert kpis.peak_attending == 0
     assert kpis.total_rows == 0
     assert kpis.avg_dwell_ms == 0.0
 
@@ -128,7 +129,7 @@ def test_kpis_are_zero_when_empty(tmp_path) -> None:
 def test_gender_totals_sum_across_window(populated_db) -> None:
     df = metrics_frame(populated_db, window_minutes=None)
     totals = gender_totals(df)
-    assert totals == {"M": 3, "F": 3}
+    assert totals == {"Male": 3, "Female": 3, "Nobody": 0}
 
 
 def test_decode_thumbnail_roundtrips_a_jpeg(populated_db) -> None:

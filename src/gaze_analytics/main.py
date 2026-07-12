@@ -30,6 +30,8 @@ from gaze_analytics.inference import (
     AgeGenderEstimator,
     FaceBBox,
     FaceDetector,
+    GazeEstimator,
+    GazeVector,
     HeadPose,
     HeadPoseEstimator,
 )
@@ -137,6 +139,9 @@ def run(
     age_gender: Annotated[
         bool, typer.Option(help="Run age/gender aggregate inference (Sprint 5)")
     ] = False,
+    gaze: Annotated[
+        bool, typer.Option(help="Run gaze estimation for precise attention (near-tier)")
+    ] = False,
     sink: Annotated[
         bool, typer.Option(help="Write aggregate rows to SQLite (Sprint 5)")
     ] = False,
@@ -145,7 +150,7 @@ def run(
         typer.Option(
             help="Preview mask: off | blur | pixelate | silhouette (Sprint 7)",
         ),
-    ] = "off",
+    ] = "blur",
     log_level: Annotated[str, typer.Option(help="DEBUG / INFO / WARNING / ERROR")] = "INFO",
 ) -> None:
     """Start the capture + inference loop."""
@@ -184,6 +189,9 @@ def run(
     face_detector: FaceDetector | None = FaceDetector(settings) if detect_faces else None
     pose_estimator: HeadPoseEstimator | None = (
         HeadPoseEstimator(settings) if (detect_faces and head_pose) else None
+    )
+    gaze_estimator: GazeEstimator | None = (
+        GazeEstimator(settings) if (detect_faces and head_pose and gaze) else None
     )
     tracker: IoUTracker | None = IoUTracker() if (detect_faces and track) else None
     segmenter: ContentSegmenter | None = ContentSegmenter() if segment_content else None
@@ -234,11 +242,15 @@ def run(
                 ] = []
                 for f in faces:
                     pose: HeadPose | None = None
+                    gaze_vec: GazeVector | None = None
                     attends = False
                     crop = frame.pixels[f.ymin : f.ymax, f.xmin : f.xmax]
                     if pose_estimator is not None and crop.size > 0:
                         pose = pose_estimator.estimate(crop)
-                        attends = is_attending(pose, settings)
+                        # Near-tier: if gaze model is loaded, refine attention
+                        if gaze_estimator is not None:
+                            gaze_vec = gaze_estimator.estimate(crop, pose)
+                        attends = is_attending(pose, settings, gaze=gaze_vec)
                         if attends:
                             attending_count += 1
 
@@ -314,6 +326,7 @@ def run(
                     attending_ids,
                     gender_by_id,  # type: ignore[arg-type]
                     timestamp=frame.timestamp_monotonic,
+                    face_count=len(faces),
                 )
                 row = aggregator.flush_if_due(
                     timestamp=frame.timestamp_monotonic,
