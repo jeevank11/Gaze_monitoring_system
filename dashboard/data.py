@@ -138,19 +138,19 @@ def content_effectiveness(metrics: pd.DataFrame) -> pd.DataFrame:
 
     For each segment_id, computes:
     - total_windows: number of aggregate windows during the segment
-    - windows_with_viewers: windows where at least 1 viewer was present
-    - total_attending: sum of attending counts
-    - total_viewers: sum of viewer counts
+    - avg_viewers: average viewers per window (not summed)
+    - avg_attending: average attending per window
     - attention_rate: attending / viewers (0-100%), the key effectiveness metric
     - avg_dwell_ms: average dwell time across the segment
+    - local_time: human-friendly local timestamp extracted from segment_id
 
     Returns a DataFrame sorted by attention_rate descending (best content first).
     """
     if metrics.empty or "segment_id" not in metrics.columns:
         return pd.DataFrame(
             columns=[
-                "segment_id", "total_windows", "windows_with_viewers",
-                "total_attending", "total_viewers", "attention_rate", "avg_dwell_ms",
+                "segment_id", "local_time", "total_windows",
+                "avg_viewers", "avg_attending", "attention_rate", "avg_dwell_ms",
             ]
         )
 
@@ -159,21 +159,44 @@ def content_effectiveness(metrics: pd.DataFrame) -> pd.DataFrame:
     if with_seg.empty:
         return pd.DataFrame(
             columns=[
-                "segment_id", "total_windows", "windows_with_viewers",
-                "total_attending", "total_viewers", "attention_rate", "avg_dwell_ms",
+                "segment_id", "local_time", "total_windows",
+                "avg_viewers", "avg_attending", "attention_rate", "avg_dwell_ms",
             ]
         )
 
     grouped = with_seg.groupby("segment_id").agg(
         total_windows=("viewers", "count"),
-        windows_with_viewers=("viewers", lambda x: (x > 0).sum()),
+        avg_viewers=("viewers", "mean"),
+        avg_attending=("attending", "mean"),
         total_attending=("attending", "sum"),
         total_viewers=("viewers", "sum"),
         avg_dwell_ms=("avg_dwell_ms", "mean"),
     ).reset_index()
 
+    grouped["avg_viewers"] = grouped["avg_viewers"].round(1)
+    grouped["avg_attending"] = grouped["avg_attending"].round(1)
     grouped["attention_rate"] = (
         grouped["total_attending"] / grouped["total_viewers"].replace(0, float("nan")) * 100
     ).fillna(0).round(1)
+
+    # Convert segment_id UTC timestamp to local time for display
+    local_tz = datetime.now().astimezone().tzinfo
+
+    def _segment_to_local_time(seg_id: str) -> str:
+        try:
+            # Extract UTC timestamp from: auto_2026-07-12T10-14-12.245Z_0000
+            parts = seg_id.split("_", 1)[1].rsplit("_", 1)[0]
+            # Convert dashes back to colons for ISO parsing: T10-14-12 → T10:14:12
+            iso_str = parts[:10] + "T" + parts[11:].replace("-", ":")
+            utc_dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+            local_dt = utc_dt.astimezone(local_tz)
+            return local_dt.strftime("%Y-%m-%d %H:%M:%S")
+        except (ValueError, IndexError):
+            return seg_id
+
+    grouped["local_time"] = grouped["segment_id"].apply(_segment_to_local_time)
+
+    # Drop intermediate columns
+    grouped = grouped.drop(columns=["total_attending", "total_viewers"])
 
     return grouped.sort_values("attention_rate", ascending=False).reset_index(drop=True)

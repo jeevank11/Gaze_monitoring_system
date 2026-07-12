@@ -350,7 +350,7 @@ if _render_charts:
     else:
         # Show bar chart of attention rates
         eff_chart = effectiveness_df.head(10).copy()
-        eff_chart["label"] = eff_chart["segment_id"].str[-20:]  # short label
+        eff_chart["label"] = eff_chart["local_time"].str[-8:]  # show just HH:MM:SS
         fig_eff = px.bar(
             eff_chart,
             x="label",
@@ -371,15 +371,15 @@ if _render_charts:
         # Detailed table
         with st.expander("Detailed scores", expanded=False):
             display_df = effectiveness_df[[
-                "segment_id", "attention_rate", "total_viewers",
-                "total_attending", "avg_dwell_ms", "total_windows",
+                "local_time", "attention_rate", "avg_viewers",
+                "avg_attending", "avg_dwell_ms", "total_windows",
             ]].rename(columns={
-                "segment_id": "Segment",
+                "local_time": "Content Started",
                 "attention_rate": "Attention %",
-                "total_viewers": "Total Viewers",
-                "total_attending": "Total Attending",
+                "avg_viewers": "Avg Viewers",
+                "avg_attending": "Avg Attending",
                 "avg_dwell_ms": "Avg Dwell (ms)",
-                "total_windows": "Windows",
+                "total_windows": "Duration (windows)",
             })
             st.dataframe(display_df, width="stretch", hide_index=True)
 
