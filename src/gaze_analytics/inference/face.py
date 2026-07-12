@@ -64,10 +64,11 @@ class FaceDetector:
         self,
         cfg: Settings = settings,
         precision: Precision = "FP16-INT8",
-        conf_threshold: float = 0.6,
+        conf_threshold: float | None = None,
     ) -> None:
         self._cfg = cfg
-        self._conf_threshold = conf_threshold
+        self._conf_threshold = conf_threshold if conf_threshold is not None else cfg.face_confidence_threshold
+        self._min_face_height = cfg.min_face_height_px
         model_path = self._resolve_model_path(cfg.models_dir, precision)
         log.info("Loading %s (%s) on device=%s", _MODEL_NAME, precision, cfg.device)
         core = ov.Core()
@@ -120,6 +121,9 @@ class FaceDetector:
             xmax = int(np.clip(det[5], 0.0, 1.0) * w)
             ymax = int(np.clip(det[6], 0.0, 1.0) * h)
             if xmax <= xmin or ymax <= ymin:
+                continue
+            # Filter out small faces (likely from screen content, not real viewers)
+            if (ymax - ymin) < self._min_face_height:
                 continue
             faces.append(FaceBBox(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax, score=score))
         return faces

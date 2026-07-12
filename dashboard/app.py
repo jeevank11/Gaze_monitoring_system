@@ -33,6 +33,7 @@ import streamlit as st  # noqa: E402
 from dashboard.data import (  # noqa: E402
     Kpis,
     compute_kpis,
+    content_effectiveness,
     decode_thumbnail,
     gender_totals,
     metrics_frame,
@@ -152,6 +153,9 @@ segment_content = st.sidebar.checkbox(
 age_gender = st.sidebar.checkbox(
     "Age / gender aggregate", value=current_cfg.age_gender, disabled=_config_disabled
 )
+gaze_flag = st.sidebar.checkbox(
+    "Gaze estimation (precise attention)", value=current_cfg.gaze, disabled=_config_disabled
+)
 sink = st.sidebar.checkbox(
     "SQLite aggregate sink", value=current_cfg.sink, disabled=_config_disabled
 )
@@ -174,6 +178,7 @@ if not pipeline_status.running:
         track=track_flag,
         segment_content=segment_content,
         age_gender=age_gender,
+        gaze=gaze_flag,
         sink=sink,
         preview=preview,
     )
@@ -255,11 +260,11 @@ if _render_charts:
     # ---- KPI tiles --------------------------------------------------------
 
     col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Viewers now", kpis.viewers_now)
-    col2.metric("Attending now", kpis.attending_now)
-    col3.metric("Avg dwell (ms)", f"{kpis.avg_dwell_ms:,.0f}")
-    col4.metric("Segments (recent)", kpis.total_segments)
-    col5.metric("Rows in window", kpis.total_rows)
+    col1.metric("Viewers Now", kpis.viewers_now)
+    col2.metric("Attending Now", kpis.attending_now)
+    col3.metric("Attention Rate", f"{kpis.attention_rate}%")
+    col4.metric("Avg Dwell (ms)", f"{kpis.avg_dwell_ms:,.0f}")
+    col5.metric("Segments", kpis.total_segments)
 
     st.divider()
 
@@ -295,13 +300,23 @@ if _render_charts:
     with col_a:
         st.subheader("Demographics (aggregate)")
         gt = gender_totals(metrics_df)
-        if gt["M"] + gt["F"] == 0:
+        if gt["Male"] + gt["Female"] + gt["Nobody"] == 0:
             st.caption("No demographic samples yet. Run with age/gender enabled.")
         else:
+            labels = []
+            values = []
+            colors = []
+            _color_map = {"Male": "#636EFA", "Female": "#EF553B", "Nobody": "#CCCCCC"}
+            for label in ("Male", "Female", "Nobody"):
+                if gt[label] > 0:
+                    labels.append(label)
+                    values.append(gt[label])
+                    colors.append(_color_map[label])
             gender_fig = px.pie(
-                names=["Male", "Female"],
-                values=[gt["M"], gt["F"]],
+                names=labels,
+                values=values,
                 hole=0.55,
+                color_discrete_sequence=colors,
             )
             gender_fig.update_layout(
                 margin={"l": 20, "r": 20, "t": 10, "b": 20},
@@ -320,6 +335,53 @@ if _render_charts:
                 margin={"l": 20, "r": 20, "t": 10, "b": 20}, height=280
             )
             st.plotly_chart(dwell_fig, width="stretch")
+
+    st.divider()
+
+    # ---- Content Effectiveness Leaderboard --------------------------------
+
+    st.subheader("Content Effectiveness Score")
+    effectiveness_df = content_effectiveness(metrics_df)
+    if effectiveness_df.empty:
+        st.caption(
+            "No segment data yet. Run with *Segment screen content* and "
+            "*SQLite aggregate sink* enabled."
+        )
+    else:
+        # Show bar chart of attention rates
+        eff_chart = effectiveness_df.head(10).copy()
+        eff_chart["label"] = eff_chart["segment_id"].str[-20:]  # short label
+        fig_eff = px.bar(
+            eff_chart,
+            x="label",
+            y="attention_rate",
+            color="attention_rate",
+            color_continuous_scale=["#EF553B", "#FECB52", "#00CC96"],
+            range_color=[0, 100],
+            labels={"attention_rate": "Attention %", "label": "Content Segment"},
+        )
+        fig_eff.update_layout(
+            margin={"l": 20, "r": 20, "t": 10, "b": 20},
+            height=300,
+            xaxis_tickangle=-30,
+            showlegend=False,
+        )
+        st.plotly_chart(fig_eff, width="stretch")
+
+        # Detailed table
+        with st.expander("Detailed scores", expanded=False):
+            display_df = effectiveness_df[[
+                "segment_id", "attention_rate", "total_viewers",
+                "total_attending", "avg_dwell_ms", "total_windows",
+            ]].rename(columns={
+                "segment_id": "Segment",
+                "attention_rate": "Attention %",
+                "total_viewers": "Total Viewers",
+                "total_attending": "Total Attending",
+                "avg_dwell_ms": "Avg Dwell (ms)",
+                "total_windows": "Windows",
+            })
+            st.dataframe(display_df, width="stretch", hide_index=True)
 
     st.divider()
 

@@ -58,6 +58,8 @@ class Settings(BaseSettings):
         description="OpenVINO inference device. AUTO picks best available.",
     )
     performance_hint: Literal["LATENCY", "THROUGHPUT", "CUMULATIVE_THROUGHPUT"] = "LATENCY"
+    face_confidence_threshold: float = 0.7
+    min_face_height_px: int = 80  # ignore faces smaller than this (filters screen artifacts)
 
     # ---- Engagement thresholds ---------------------------------------------
     head_yaw_max_deg: float = 25.0

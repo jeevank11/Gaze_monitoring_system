@@ -45,6 +45,7 @@ class PipelineConfig:
     track: bool = True
     segment_content: bool = True
     age_gender: bool = True
+    gaze: bool = True
     sink: bool = True
     preview: bool = True
     log_level: str = "INFO"
@@ -61,6 +62,7 @@ class PipelineConfig:
             ("track", "track"),
             ("segment_content", "segment-content"),
             ("age_gender", "age-gender"),
+            ("gaze", "gaze"),
             ("sink", "sink"),
             ("preview", "preview"),
         ]
