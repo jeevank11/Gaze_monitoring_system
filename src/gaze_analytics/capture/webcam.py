@@ -49,8 +49,29 @@ class WebcamOpenError(RuntimeError):
 def open_camera(cfg: Settings = settings) -> cv2.VideoCapture:
     """Open the webcam using the configured index and backend.
 
+    If ``cfg.video_file`` is set, open that video file instead (useful for
+    offline testing when no webcam is available).
+
     Raises ``WebcamOpenError`` if the device cannot be opened.
     """
+    if cfg.video_file is not None:
+        source: int | str = str(cfg.video_file)
+        cap = cv2.VideoCapture(source)
+        if not cap.isOpened():
+            raise WebcamOpenError(
+                f"Could not open video file {cfg.video_file}. "
+                "Check the path exists and is a supported format."
+            )
+        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        log.info(
+            "Video file opened: path=%s resolution=%dx%d",
+            cfg.video_file,
+            actual_w,
+            actual_h,
+        )
+        return cap
+
     backend = _BACKEND_MAP.get(cfg.camera_backend, cv2.CAP_ANY)
     cap = cv2.VideoCapture(cfg.camera_index, backend)
     if not cap.isOpened():
@@ -79,13 +100,21 @@ def iter_frames(cfg: Settings = settings) -> Iterator[Frame]:
     """Yield frames from the webcam until stopped.
 
     The yielded ``Frame.pixels`` buffer is invalid after the next iteration.
+
+    When reading from a video file (``cfg.video_file`` set), the loop
+    restarts the file on EOF so testing behaves like a live camera.
     """
     cap = open_camera(cfg)
+    is_file = cfg.video_file is not None
     index = 0
     try:
         while True:
             ok, pixels = cap.read()
             if not ok or pixels is None:
+                if is_file:
+                    # Video file exhausted — rewind and keep looping for tests.
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    continue
                 log.warning("Frame grab failed at index=%d; retrying", index)
                 # brief backoff so we don't spin at 100% CPU on a dead cam
                 time.sleep(0.05)

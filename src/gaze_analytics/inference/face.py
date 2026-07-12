@@ -69,9 +69,14 @@ class FaceDetector:
         self._cfg = cfg
         self._conf_threshold = conf_threshold if conf_threshold is not None else cfg.face_confidence_threshold
         self._min_face_height = cfg.min_face_height_px
+        self._tiled = bool(cfg.face_tiled_detection)
+        self._tile_grid = max(1, int(cfg.face_tile_grid))
+        self._tile_overlap = float(np.clip(cfg.face_tile_overlap, 0.0, 0.5))
         model_path = self._resolve_model_path(cfg.models_dir, precision)
         log.info("Loading %s (%s) on device=%s", _MODEL_NAME, precision, cfg.device)
         core = ov.Core()
+        cfg.ov_cache_dir.mkdir(parents=True, exist_ok=True)
+        core.set_property({"CACHE_DIR": str(cfg.ov_cache_dir)})
         model = core.read_model(str(model_path))
         self._compiled = core.compile_model(
             model,
@@ -97,16 +102,57 @@ class FaceDetector:
         )
 
     def detect(self, frame_bgr: np.ndarray) -> list[FaceBBox]:
-        """Run one forward pass and return face bboxes above the score threshold.
+        """Run detection and return face bboxes above the score threshold.
+
+        If ``cfg.face_tiled_detection`` is True, splits the frame into an
+        NxN grid (with overlap) and runs the detector on each tile before
+        merging results with NMS. This dramatically improves small-face
+        recall for crowded scenes at the cost of NxN more inference passes.
 
         ``frame_bgr`` must be a BGR uint8 image (as produced by cv2). The array
         is read but never mutated, copied, or persisted.
         """
         h, w = frame_bgr.shape[:2]
-        # cv2.resize returns a small (300x300x3) view we discard after inference.
-        resized = cv2.resize(frame_bgr, (_INPUT_W, _INPUT_H), interpolation=cv2.INTER_LINEAR)
-        # NHWC(uint8) -> NCHW(float32); model accepts float input, so this
-        # is the cheapest conversion that satisfies the API.
+        if not self._tiled or self._tile_grid <= 1:
+            return self._detect_region(frame_bgr, 0, 0, w, h)
+
+        # Tiled path: compute overlapping tile rectangles then merge results.
+        grid = self._tile_grid
+        overlap = self._tile_overlap
+        tile_w = int(round(w / grid))
+        tile_h = int(round(h / grid))
+        pad_x = int(round(tile_w * overlap))
+        pad_y = int(round(tile_h * overlap))
+
+        all_faces: list[FaceBBox] = []
+        for gy in range(grid):
+            for gx in range(grid):
+                x0 = max(0, gx * tile_w - pad_x)
+                y0 = max(0, gy * tile_h - pad_y)
+                x1 = min(w, (gx + 1) * tile_w + pad_x)
+                y1 = min(h, (gy + 1) * tile_h + pad_y)
+                if x1 - x0 < 32 or y1 - y0 < 32:
+                    continue
+                tile = frame_bgr[y0:y1, x0:x1]
+                all_faces.extend(self._detect_region(tile, x0, y0, x1 - x0, y1 - y0))
+
+        return _nms_faces(all_faces, iou_threshold=0.35)
+
+    def _detect_region(
+        self,
+        region_bgr: np.ndarray,
+        offset_x: int,
+        offset_y: int,
+        region_w: int,
+        region_h: int,
+    ) -> list[FaceBBox]:
+        """Run one forward pass on a region and return bboxes in FULL-FRAME coords.
+
+        ``offset_x/offset_y`` shift the local tile coordinates back to the
+        original frame's coordinate system so callers can treat the result
+        uniformly.
+        """
+        resized = cv2.resize(region_bgr, (_INPUT_W, _INPUT_H), interpolation=cv2.INTER_LINEAR)
         blob = np.expand_dims(resized.transpose(2, 0, 1), axis=0).astype(np.float32)
         result = self._compiled({self._input_key: blob})
         # SSD output layout: [1, 1, N, 7] = [image_id, label, conf, x0, y0, x1, y1] normalised
@@ -116,17 +162,47 @@ class FaceDetector:
             score = float(det[2])
             if score < self._conf_threshold:
                 continue
-            xmin = int(np.clip(det[3], 0.0, 1.0) * w)
-            ymin = int(np.clip(det[4], 0.0, 1.0) * h)
-            xmax = int(np.clip(det[5], 0.0, 1.0) * w)
-            ymax = int(np.clip(det[6], 0.0, 1.0) * h)
+            xmin = int(np.clip(det[3], 0.0, 1.0) * region_w) + offset_x
+            ymin = int(np.clip(det[4], 0.0, 1.0) * region_h) + offset_y
+            xmax = int(np.clip(det[5], 0.0, 1.0) * region_w) + offset_x
+            ymax = int(np.clip(det[6], 0.0, 1.0) * region_h) + offset_y
             if xmax <= xmin or ymax <= ymin:
                 continue
-            # Filter out small faces (likely from screen content, not real viewers)
             if (ymax - ymin) < self._min_face_height:
                 continue
             faces.append(FaceBBox(xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax, score=score))
         return faces
+
+
+def _nms_faces(faces: list[FaceBBox], iou_threshold: float = 0.35) -> list[FaceBBox]:
+    """Greedy non-max suppression over FaceBBox list, highest-score first.
+
+    Needed for tiled detection: overlapping tiles will re-detect the same
+    face; NMS collapses duplicates. Pure geometry, no image data touched.
+    """
+    if len(faces) <= 1:
+        return list(faces)
+    ordered = sorted(faces, key=lambda f: f.score, reverse=True)
+    kept: list[FaceBBox] = []
+    for cand in ordered:
+        dup = False
+        for k in kept:
+            xa1 = max(cand.xmin, k.xmin)
+            ya1 = max(cand.ymin, k.ymin)
+            xa2 = min(cand.xmax, k.xmax)
+            ya2 = min(cand.ymax, k.ymax)
+            inter = max(0, xa2 - xa1) * max(0, ya2 - ya1)
+            if inter == 0:
+                continue
+            area_c = (cand.xmax - cand.xmin) * (cand.ymax - cand.ymin)
+            area_k = (k.xmax - k.xmin) * (k.ymax - k.ymin)
+            union = area_c + area_k - inter
+            if union > 0 and inter / union >= iou_threshold:
+                dup = True
+                break
+        if not dup:
+            kept.append(cand)
+    return kept
 
 
 def draw_face_bboxes(frame_bgr: np.ndarray, faces: list[FaceBBox]) -> None:
