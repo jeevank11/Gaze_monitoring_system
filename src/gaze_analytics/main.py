@@ -27,7 +27,7 @@ from gaze_analytics.capture.screen import ScreenGrabber
 from gaze_analytics.capture.webcam import iter_frames
 from gaze_analytics.config import settings
 from gaze_analytics.content import ContentSegment, ContentSegmenter
-from gaze_analytics.engagement import RollingAggregator, is_attending
+from gaze_analytics.engagement import AttentionSmoother, RollingAggregator, is_attending
 from gaze_analytics.inference import (
     AgeGenderEstimator,
     FaceBBox,
@@ -254,6 +254,7 @@ def run(
     )
     aggregator: RollingAggregator | None = RollingAggregator(settings) if sink else None
     db_sink: SqliteSink | None = SqliteSink(settings.sqlite_path) if sink else None
+    attention_smoother = AttentionSmoother(settings.attention_away_frames)
 
     # Screen capture cadence: one grab every N webcam frames.
     screen_period = (
@@ -304,12 +305,15 @@ def run(
                         if gaze_estimator is not None:
                             gaze_vec = gaze_estimator.estimate(crop, pose)
                         attends = is_attending(pose, settings, gaze=gaze_vec)
-                        if attends:
-                            attending_count += 1
 
                     matched = _match_track_to_detection(tracks, f) if tracker else None
-                    if matched is not None and attends:
-                        attending_ids.add(matched.track_id)
+                    # Apply per-track hysteresis so a brief head turn doesn't flip to "away".
+                    if matched is not None:
+                        attends = attention_smoother.update(matched.track_id, attends)
+                    if attends:
+                        attending_count += 1
+                        if matched is not None:
+                            attending_ids.add(matched.track_id)
 
                     if (
                         age_gender_estimator is not None
@@ -338,6 +342,8 @@ def run(
                 faces_last = len(faces)
                 attending_last = attending_count
                 tracks_last = len(tracks)
+                # Drop smoother state for tracks that disappeared this frame.
+                attention_smoother.gc({t.track_id for t in tracks})
 
             if (
                 segmenter is not None

@@ -83,10 +83,14 @@ class Settings(BaseSettings):
     face_tile_overlap: float = 0.15  # fractional overlap between tiles (avoids splitting faces on tile borders)
 
     # ---- Engagement thresholds ---------------------------------------------
-    head_yaw_max_deg: float = 25.0
-    head_pitch_max_deg: float = 20.0
+    head_yaw_max_deg: float = 30.0
+    head_pitch_max_deg: float = 25.0
     gaze_angle_max_deg: float = 15.0
     min_dwell_ms: int = 500
+    # Hysteresis: a track must fail the attention check for this many
+    # consecutive frames before being flipped to "away". Away→attending is
+    # instant. Set to 1 to disable smoothing.
+    attention_away_frames: int = 12
 
     # ---- Content segmentation -----------------------------------------------
     screen_capture_hz: float = 1.0
