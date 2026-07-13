@@ -78,7 +78,7 @@ st.markdown(
         font-family: 'JetBrains Mono', 'Consolas', 'Menlo', monospace !important;
       }
 
-      .block-container { padding-top: 1.75rem; padding-bottom: 3rem; }
+      .block-container { padding-top: 0.1rem; padding-bottom: 3rem; }
 
       .ga-hero {
         display: flex; align-items: center; gap: 14px;
@@ -137,6 +137,8 @@ st.markdown(
       .stButton>button:active { transform: translateY(1px); }
 
       section[data-testid="stSidebar"] { background: #f8fafc; }
+      section[data-testid="stSidebar"] > div:first-child { padding-top: 0.5rem !important; }
+      section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] { padding-top: 0.5rem !important; }
       section[data-testid="stSidebar"] h1,
       section[data-testid="stSidebar"] h2,
       section[data-testid="stSidebar"] h3 { color: #0f172a; font-weight: 600; }
@@ -541,7 +543,7 @@ if _render_charts:
 
     # ---- Trend chart ------------------------------------------------------
 
-    st.subheader("Viewers vs. attending")
+    st.subheader("Viewers vs. Attending")
     if metrics_df.empty:
         st.info(
             "No aggregate rows in the selected window yet. "
@@ -569,7 +571,7 @@ if _render_charts:
 
     col_a, col_b = st.columns([1, 1])
     with col_a:
-        st.subheader("Demographics (aggregate)")
+        st.subheader("Demographics")
         gt = gender_totals(metrics_df)
         if gt["Male"] + gt["Female"] + gt["Nobody"] == 0:
             st.caption("No demographic samples yet. Run with age/gender enabled.")
