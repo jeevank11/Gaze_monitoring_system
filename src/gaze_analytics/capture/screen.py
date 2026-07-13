@@ -72,3 +72,18 @@ class ScreenGrabber:
     def close(self) -> None:
         self._sct.close()
 
+
+def list_monitors() -> list[dict]:
+    """Return a list of available monitors as reported by mss.
+
+    The first element (index 0) is the union of all monitors ("virtual screen");
+    elements 1..N are individual physical displays. Each dict has integer
+    ``left``, ``top``, ``width``, ``height`` keys.
+    """
+    try:
+        with mss() as sct:
+            return [dict(m) for m in sct.monitors]
+    except (ScreenShotError, OSError, RuntimeError) as err:
+        log.warning("failed to enumerate monitors: %s", err)
+        return []
+

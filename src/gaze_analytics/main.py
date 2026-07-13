@@ -191,6 +191,15 @@ def run(
             help="Grid size for --tiled-detection (e.g. 2 = 2x2 tiles, 3 = 3x3).",
         ),
     ] = 2,
+    monitor: Annotated[
+        int,
+        typer.Option(
+            help=(
+                "Which physical display to screen-capture for content segmentation. "
+                "1 = primary display (default), 2/3/... = additional monitors."
+            ),
+        ),
+    ] = 1,
     log_level: Annotated[str, typer.Option(help="DEBUG / INFO / WARNING / ERROR")] = "INFO",
 ) -> None:
     """Start the capture + inference loop."""
@@ -220,6 +229,7 @@ def run(
     settings.face_confidence_threshold = face_confidence
     settings.face_tiled_detection = tiled_detection
     settings.face_tile_grid = max(1, int(tile_grid))
+    settings.monitor_index = max(1, int(monitor))
 
     log.info("gaze-analytics v%s starting", __version__)
     log.info(
@@ -248,7 +258,9 @@ def run(
     )
     tracker: IoUTracker | None = IoUTracker() if (detect_faces and track) else None
     segmenter: ContentSegmenter | None = ContentSegmenter() if segment_content else None
-    screen: ScreenGrabber | None = ScreenGrabber() if segment_content else None
+    screen: ScreenGrabber | None = (
+        ScreenGrabber(monitor_index=settings.monitor_index) if segment_content else None
+    )
     age_gender_estimator: AgeGenderEstimator | None = (
         AgeGenderEstimator(settings) if (detect_faces and age_gender) else None
     )

@@ -51,6 +51,9 @@ class PipelineConfig:
     log_level: str = "INFO"
     # Optional local video file to feed in place of the webcam (for testing).
     video_file: str | None = None
+    # Which physical display to screen-capture for content segmentation.
+    # 1 = primary display, 2/3/... = additional monitors (mss numbering).
+    monitor_index: int = 1
     # Minimum face height in pixels to accept as a viewer. Lower this when
     # testing with recorded videos where faces appear smaller than the 80 px
     # signage default (see Settings.min_face_height_px).
@@ -71,6 +74,7 @@ class PipelineConfig:
             "--min-face-height", str(self.min_face_height_px),
             "--face-confidence", f"{self.face_confidence_threshold:.3f}",
             "--tile-grid", str(self.tile_grid),
+            "--monitor", str(self.monitor_index),
         ]
         toggles: list[tuple[str, str]] = [
             ("detect_faces", "detect-faces"),

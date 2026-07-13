@@ -94,6 +94,11 @@ class Settings(BaseSettings):
 
     # ---- Content segmentation -----------------------------------------------
     screen_capture_hz: float = 1.0
+    # Which physical display to screen-capture. mss numbers monitors 1..N;
+    # index 1 is the primary display, 2/3/... are additional monitors.
+    # (Index 0 means "all monitors as one big virtual screen" — usually not
+    # what you want.)
+    monitor_index: int = 1
     phash_hamming_threshold: int = 12
     min_segment_seconds: int = 3
     keep_segment_thumbnail: bool = True

@@ -53,6 +53,7 @@ from dashboard.process import (  # noqa: E402
 )
 from streamlit_autorefresh import st_autorefresh  # noqa: E402
 
+from gaze_analytics.capture.screen import list_monitors  # noqa: E402
 from gaze_analytics.config import settings  # noqa: E402
 
 st.set_page_config(
@@ -327,6 +328,36 @@ preview = st.sidebar.checkbox(
 )
 
 st.sidebar.markdown("**Input source**")
+# Enumerate physical monitors so the user can pick which display to
+# screen-capture for content segmentation. mss returns index 0 = "all
+# monitors combined" (usually not useful); indices 1..N are real displays.
+_monitors = list_monitors()
+_physical_monitors = _monitors[1:] if len(_monitors) > 1 else []
+if _physical_monitors:
+    _monitor_options = list(range(1, len(_physical_monitors) + 1))
+    _monitor_labels = {
+        i: f"Monitor {i}  \u2013  {m['width']}\u00d7{m['height']} @ ({m['left']}, {m['top']})"
+        for i, m in zip(_monitor_options, _physical_monitors)
+    }
+    _current_monitor = int(current_cfg.monitor_index)
+    if _current_monitor not in _monitor_options:
+        _current_monitor = _monitor_options[0]
+    monitor_index = st.sidebar.selectbox(
+        "Screen to capture",
+        options=_monitor_options,
+        index=_monitor_options.index(_current_monitor),
+        format_func=lambda i: _monitor_labels[i],
+        disabled=_config_disabled,
+        help=(
+            "Which physical display to screen-capture for content segmentation. "
+            "Change this if you're running the pipeline on a laptop but the ad "
+            "content plays on an external monitor."
+        ),
+    )
+else:
+    monitor_index = int(current_cfg.monitor_index)
+    st.sidebar.caption("Screen to capture: no monitors detected")
+
 video_file_input = st.sidebar.text_input(
     "Video file (optional)",
     value=current_cfg.video_file or "",
@@ -401,6 +432,7 @@ if not pipeline_status.running:
         sink=sink,
         preview=preview,
         video_file=_video_file,
+        monitor_index=int(monitor_index),
         min_face_height_px=min_face_height_px,
         face_confidence_threshold=face_confidence_threshold,
         tiled_detection=tiled_detection,
