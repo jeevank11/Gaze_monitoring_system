@@ -163,19 +163,23 @@ def gender_totals(metrics: pd.DataFrame) -> dict[str, int]:
 
 
 def latest_gender(metrics: pd.DataFrame) -> dict[str, int | str | None]:
-    """Return the Male/Female counts from the most recent window that saw someone.
+    """Return the Male/Female counts for the *current* moment.
 
-    Falls back to the latest row if none had viewers. The ``ts`` field lets the
-    UI show *when* the snapshot was taken so the user can gauge freshness.
+    "Current" means the most recent aggregate window. If that window has no
+    viewers, we return zeros — it would be misleading to show a stale split
+    (e.g. "Male 100%") from a person who left minutes ago just because they
+    were the last one seen. The ``ts`` field lets the UI show *when* the
+    snapshot was taken so the user can gauge freshness.
     """
     if metrics.empty:
         return {"Male": 0, "Female": 0, "ts": None}
-    non_empty = metrics[metrics["viewers"] > 0]
-    row = non_empty.iloc[-1] if not non_empty.empty else metrics.iloc[-1]
+    row = metrics.iloc[-1]
     ts = row.get("ts")
     ts_iso = None
     if ts is not None and pd.notna(ts):
         ts_iso = pd.Timestamp(ts).isoformat()
+    if int(row.get("viewers", 0)) <= 0:
+        return {"Male": 0, "Female": 0, "ts": ts_iso}
     return {
         "Male": int(row["male_count"]),
         "Female": int(row["female_count"]),
