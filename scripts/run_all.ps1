@@ -22,7 +22,7 @@ $analytics = Start-Job -Name "gaze-analytics" -ScriptBlock {
 $dashboard = Start-Job -Name "gaze-dashboard" -ScriptBlock {
     param($r)
     Set-Location $r
-    streamlit run dashboard/app.py --server.headless true
+    streamlit run dashboard/📺_Gaze_Live.py --server.headless true
 } -ArgumentList $root
 
 Write-Host "Analytics job id: $($analytics.Id)  Dashboard job id: $($dashboard.Id)"

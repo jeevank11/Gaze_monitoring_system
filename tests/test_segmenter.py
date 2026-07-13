@@ -44,10 +44,37 @@ def test_same_content_keeps_same_segment_and_extends_last_seen() -> None:
 def test_content_change_creates_new_segment() -> None:
     segmenter = ContentSegmenter(cfg=Settings())
     first = segmenter.update(_gradient(seed=1), timestamp=0.0)
-    second = segmenter.update(_gradient(seed=999), timestamp=1.0)
+    # Wait past the min_segment_seconds floor before the drift, otherwise the
+    # flicker guard would suppress the new segment.
+    second = segmenter.update(_gradient(seed=999), timestamp=5.0)
     assert first.segment_id == 0
     assert second.segment_id == 1
-    assert second.first_seen_ts == 1.0
+    assert second.first_seen_ts == 5.0
+
+
+def test_drift_within_min_segment_seconds_is_suppressed() -> None:
+    """Rapid pHash changes below the min-duration floor must NOT split."""
+    cfg = Settings(min_segment_seconds=3)
+    segmenter = ContentSegmenter(cfg=cfg)
+    first = segmenter.update(_gradient(seed=1), timestamp=0.0)
+    # Drift arrives at t=1s — still inside the 3s guard.
+    held = segmenter.update(_gradient(seed=999), timestamp=1.0)
+    assert held.segment_id == first.segment_id == 0
+    # last_seen_ts still advances so the segment isn't frozen in time.
+    assert held.last_seen_ts == 1.0
+
+
+def test_drift_after_min_segment_seconds_creates_new_segment() -> None:
+    """Once the current segment is old enough, drift splits normally."""
+    cfg = Settings(min_segment_seconds=3)
+    segmenter = ContentSegmenter(cfg=cfg)
+    segmenter.update(_gradient(seed=1), timestamp=0.0)
+    # Intermediate same-content update keeps segment #0 alive.
+    segmenter.update(_gradient(seed=1), timestamp=2.0)
+    # At t=3.5s the current segment is 3.5s old — guard released.
+    new = segmenter.update(_gradient(seed=999), timestamp=3.5)
+    assert new.segment_id == 1
+    assert new.first_seen_ts == 3.5
 
 
 def test_thumbnail_shape_matches_config_when_enabled() -> None:

@@ -72,3 +72,12 @@ Thumbs.db
 # -----------------------------------------------------------------------------
 *.spec
 release/
+
+# -----------------------------------------------------------------------------
+# Streamlit dashboard runtime logs (captured when launched detached)
+# -----------------------------------------------------------------------------
+streamlit.out.log
+streamlit.err.log
+
+# local commit-msg drafts
+.gitmsg.tmp

@@ -12,7 +12,7 @@ attention rate, and per-content-segment engagement.
 ## Run
 
 ```powershell
-streamlit run dashboard/app.py
+streamlit run dashboard/📺_Gaze_Live.py
 ```
 
 Opens `http://localhost:8501` in the browser.

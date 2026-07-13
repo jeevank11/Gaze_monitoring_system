@@ -88,7 +88,7 @@ must be rejected in review.
 | 3 | Head pose + attention gate | `inference/head_pose.py`, `engagement/attention.py` | Box turns green when looking at screen |
 | 4 | Tracker + content segmenter | `tracker/iou_kalman.py`, `content/phash.py`, `content/segmenter.py`, `capture/screen.py` | Each face has a stable ID; screen changes create new segments |
 | 5 | Age/gender + SQLite sink | `inference/age_gender.py`, `engagement/aggregator.py`, `storage/sqlite_sink.py` | Rows appearing every 5 s |
-| 6 | Streamlit dashboard | `dashboard/app.py` | Live tiles + trend chart + segments table |
+| 6 | Streamlit dashboard | `dashboard/📺_Gaze_Live.py` | Live tiles + trend chart + segments table |
 | 7 | Privacy render + polish | `privacy/silhouette_render.py`, README, threat model | Silhouette-only demo mode works |
 | 8 | Benchmark + Docker + exe + pitch | `scripts/benchmark.py`, `deploy/*`, `docs/PITCH.md`, `docs/BENCHMARKS.md` | Reproducible benchmark table; single-command deploy for each target |
 

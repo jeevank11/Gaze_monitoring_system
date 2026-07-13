@@ -102,15 +102,81 @@ def test_segments_frame_returns_closed_segment(populated_db) -> None:
     assert row["thumbnail_b64"] is not None
 
 
+def test_segments_frame_only_with_viewers_hides_unviewed(tmp_path) -> None:
+    """The display filter must not touch storage — segments still exist in DB."""
+    db_path = tmp_path / "metrics.sqlite"
+    sink = SqliteSink(db_path)
+    base = time.monotonic()
+
+    # Segment A — has a viewed metric row.
+    seg_a = ContentSegment(
+        segment_id=1,
+        phash=0xAAAA_AAAA_AAAA_AAAA,
+        first_seen_ts=base,
+        last_seen_ts=base + 5.0,
+        thumbnail=np.full((90, 160, 3), 100, dtype=np.uint8),
+    )
+    sid_a = sink.upsert_segment_start(seg_a)
+    sink.close_segment(seg_a, sid_a)
+    sink.write_metrics(
+        WindowMetrics(
+            window_start_ts=base,
+            window_end_ts=base + 5.0,
+            window_seconds=5,
+            viewers=2,
+            attending=1,
+            avg_dwell_ms=500,
+            male_count=1,
+            female_count=1,
+            segment_id=sid_a,
+        )
+    )
+
+    # Segment B — no viewers (metric row exists but viewers=0).
+    seg_b = ContentSegment(
+        segment_id=2,
+        phash=0xBBBB_BBBB_BBBB_BBBB,
+        first_seen_ts=base + 5.0,
+        last_seen_ts=base + 10.0,
+        thumbnail=np.full((90, 160, 3), 200, dtype=np.uint8),
+    )
+    sid_b = sink.upsert_segment_start(seg_b)
+    sink.close_segment(seg_b, sid_b)
+    sink.write_metrics(
+        WindowMetrics(
+            window_start_ts=base + 5.0,
+            window_end_ts=base + 10.0,
+            window_seconds=5,
+            viewers=0,
+            attending=0,
+            avg_dwell_ms=0,
+            male_count=0,
+            female_count=0,
+            segment_id=sid_b,
+        )
+    )
+    sink.close()
+
+    # Default: both segments visible.
+    all_segments = segments_frame(db_path)
+    assert len(all_segments) == 2
+
+    # Filtered: only the viewed one.
+    viewed = segments_frame(db_path, only_with_viewers=True)
+    assert len(viewed) == 1
+    assert viewed.iloc[0]["id"] == sid_a
+
+
 def test_kpis_come_from_the_latest_row(populated_db) -> None:
     metrics = metrics_frame(populated_db, window_minutes=None)
     segments = segments_frame(populated_db)
     kpis = compute_kpis(metrics, segments)
-    assert kpis.peak_viewers == 4
-    assert kpis.peak_attending == 3
-    assert kpis.attention_rate == pytest.approx(66.7, abs=0.1)  # 4/(2+4)*100
+    # ``*_now`` fields track the latest window row (viewers=4, attending=3).
+    assert kpis.viewers_now == 4
+    assert kpis.attending_now == 3
+    # attention_rate = sum(attending) / sum(viewers) * 100 = (1+3)/(2+4)*100
+    assert kpis.attention_rate == pytest.approx(66.7, abs=0.1)
     assert kpis.total_segments == 1
-    assert kpis.total_rows == 2
     assert kpis.avg_dwell_ms == pytest.approx(1200.0)  # (800 + 1600) / 2
 
 
@@ -120,16 +186,17 @@ def test_kpis_are_zero_when_empty(tmp_path) -> None:
     metrics = metrics_frame(tmp_path / "empty.sqlite", window_minutes=None)
     segments = segments_frame(tmp_path / "empty.sqlite")
     kpis = compute_kpis(metrics, segments)
-    assert kpis.peak_viewers == 0
-    assert kpis.peak_attending == 0
-    assert kpis.total_rows == 0
+    assert kpis.viewers_now == 0
+    assert kpis.attending_now == 0
+    assert kpis.attention_rate == 0.0
     assert kpis.avg_dwell_ms == 0.0
+    assert kpis.total_segments == 0
 
 
 def test_gender_totals_sum_across_window(populated_db) -> None:
     df = metrics_frame(populated_db, window_minutes=None)
     totals = gender_totals(df)
-    assert totals == {"Male": 3, "Female": 3, "Nobody": 0}
+    assert totals == {"Male": 3, "Female": 3}
 
 
 def test_decode_thumbnail_roundtrips_a_jpeg(populated_db) -> None:

@@ -25,6 +25,7 @@ class Kpis:
 
     viewers_now: int
     attending_now: int
+    peak_viewers: int  # max viewers observed in any single window (current run / selection)
     attention_rate: float  # percentage 0-100
     avg_dwell_ms: float
     total_segments: int
@@ -83,20 +84,39 @@ def metrics_frame(
     return df
 
 
-def segments_frame(db_path: Path, limit: int = 20) -> pd.DataFrame:
-    """Return the ``limit`` most recent content segments."""
+def segments_frame(
+    db_path: Path,
+    limit: int = 20,
+    only_with_viewers: bool = False,
+) -> pd.DataFrame:
+    """Return the ``limit`` most recent content segments.
+
+    When ``only_with_viewers`` is True, filter to segments that overlap at
+    least one aggregate window with ``viewers > 0``. The underlying tables
+    stay unchanged — this is a presentation filter only.
+    """
     with closing(_connect(db_path)) as conn:
-        df = pd.read_sql_query(
+        if only_with_viewers:
+            query = """
+                SELECT id, started_at, ended_at, duration_ms, phash,
+                       thumbnail_b64, segment_type
+                FROM segments
+                WHERE id IN (
+                    SELECT DISTINCT segment_id FROM metrics
+                    WHERE viewers > 0 AND segment_id IS NOT NULL
+                )
+                ORDER BY started_at DESC
+                LIMIT ?
             """
-            SELECT id, started_at, ended_at, duration_ms, phash,
-                   thumbnail_b64, segment_type
-            FROM segments
-            ORDER BY started_at DESC
-            LIMIT ?
-            """,
-            conn,
-            params=(limit,),
-        )
+        else:
+            query = """
+                SELECT id, started_at, ended_at, duration_ms, phash,
+                       thumbnail_b64, segment_type
+                FROM segments
+                ORDER BY started_at DESC
+                LIMIT ?
+            """
+        df = pd.read_sql_query(query, conn, params=(limit,))
     if not df.empty:
         local_tz = datetime.now().astimezone().tzinfo
         df["started_at"] = pd.to_datetime(df["started_at"], utc=True, errors="coerce")
@@ -109,7 +129,7 @@ def segments_frame(db_path: Path, limit: int = 20) -> pd.DataFrame:
 def compute_kpis(metrics: pd.DataFrame, segments: pd.DataFrame) -> Kpis:
     """Derive the header tiles from the metrics in the selected window."""
     if metrics.empty:
-        return Kpis(0, 0, 0.0, 0.0, len(segments))
+        return Kpis(0, 0, 0, 0.0, 0.0, len(segments))
     latest = metrics.iloc[-1]
     total_viewers = int(metrics["viewers"].sum())
     total_attending = int(metrics["attending"].sum())
@@ -117,6 +137,7 @@ def compute_kpis(metrics: pd.DataFrame, segments: pd.DataFrame) -> Kpis:
     return Kpis(
         viewers_now=int(latest["viewers"]),
         attending_now=int(latest["attending"]),
+        peak_viewers=int(metrics["viewers"].max()),
         attention_rate=round(attention_rate, 1),
         avg_dwell_ms=float(metrics["avg_dwell_ms"].mean()),
         total_segments=len(segments),
@@ -124,18 +145,41 @@ def compute_kpis(metrics: pd.DataFrame, segments: pd.DataFrame) -> Kpis:
 
 
 def gender_totals(metrics: pd.DataFrame) -> dict[str, int]:
-    """Aggregate gender counts across the visible window (privacy-safe totals).
+    """Cumulative Male/Female counts across the selected window.
 
-    Windows where no viewers were detected are counted as 'Nobody' rather
-    than being silently ignored — this avoids inflating Male/Female ratios.
+    Each row contributes the number of *tracks* whose majority-voted gender was
+    Male / Female during that aggregate window. Windows with no viewers are
+    ignored — they belong to occupancy, not demographics. Empty-room padding
+    used to be reported as ``Nobody`` but it dominated the pie and made the
+    Male/Female split look static, so it was removed. Use ``latest_gender``
+    for a real-time snapshot.
     """
     if metrics.empty:
-        return {"Male": 0, "Female": 0, "Nobody": 0}
-    nobody = int((metrics["viewers"] == 0).sum())
+        return {"Male": 0, "Female": 0}
     return {
         "Male": int(metrics["male_count"].sum()),
         "Female": int(metrics["female_count"].sum()),
-        "Nobody": nobody,
+    }
+
+
+def latest_gender(metrics: pd.DataFrame) -> dict[str, int | str | None]:
+    """Return the Male/Female counts from the most recent window that saw someone.
+
+    Falls back to the latest row if none had viewers. The ``ts`` field lets the
+    UI show *when* the snapshot was taken so the user can gauge freshness.
+    """
+    if metrics.empty:
+        return {"Male": 0, "Female": 0, "ts": None}
+    non_empty = metrics[metrics["viewers"] > 0]
+    row = non_empty.iloc[-1] if not non_empty.empty else metrics.iloc[-1]
+    ts = row.get("ts")
+    ts_iso = None
+    if ts is not None and pd.notna(ts):
+        ts_iso = pd.Timestamp(ts).isoformat()
+    return {
+        "Male": int(row["male_count"]),
+        "Female": int(row["female_count"]),
+        "ts": ts_iso,
     }
 
 
