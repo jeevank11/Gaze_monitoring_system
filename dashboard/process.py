@@ -49,6 +49,10 @@ class PipelineConfig:
     sink: bool = True
     preview: bool = True
     log_level: str = "INFO"
+    # OpenCV VideoCapture index. 0 is usually the built-in webcam; external
+    # USB cams enumerate as 1, 2, ... The dashboard offers a picker that
+    # probes indices 0..3 for available devices.
+    camera_index: int = 0
     # Optional local video file to feed in place of the webcam (for testing).
     video_file: str | None = None
     # Which physical display to screen-capture for content segmentation.
@@ -69,6 +73,7 @@ class PipelineConfig:
     def as_cli_args(self) -> list[str]:
         args: list[str] = [
             "--device", self.device,
+            "--camera", str(self.camera_index),
             "--privacy-mode", self.privacy_mode,
             "--log-level", self.log_level,
             "--min-face-height", str(self.min_face_height_px),

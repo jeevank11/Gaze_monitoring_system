@@ -247,6 +247,57 @@ preview = st.sidebar.checkbox(
 )
 
 st.sidebar.markdown("**Input source**")
+
+# Camera picker — probe OpenCV indices so users pick from real devices
+# instead of guessing an integer. Cached to avoid hammering the driver on
+# every Streamlit rerun; only runs while the pipeline is stopped so we
+# don't compete with the running pipeline for the device.
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _probe_cameras(max_index: int = 4) -> list[int]:
+    """Return VideoCapture indices in [0, max_index) that open successfully."""
+    import cv2
+
+    found: list[int] = []
+    for i in range(max_index):
+        cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+        try:
+            if cap.isOpened():
+                found.append(i)
+        finally:
+            cap.release()
+    return found
+
+if _config_disabled:
+    # Pipeline running — show what it's using, read-only.
+    st.sidebar.text_input(
+        "Camera index",
+        value=f"Camera {current_cfg.camera_index}",
+        disabled=True,
+        help="Camera in use by the running pipeline. Stop to change.",
+    )
+    _camera_index = current_cfg.camera_index
+else:
+    _available = _probe_cameras(max_index=4)
+    if not _available:
+        _available = [0]  # fallback so the selectbox always has an option
+    # Keep the currently-configured index visible even if the probe missed it.
+    _options = sorted(set(_available + [current_cfg.camera_index]))
+    _camera_index = st.sidebar.selectbox(
+        "Camera index",
+        options=_options,
+        index=_options.index(current_cfg.camera_index),
+        format_func=lambda i: f"Camera {i}"
+        + (" (built-in)" if i == 0 else " (external)"),
+        help=(
+            "OpenCV VideoCapture index. 0 is usually the built-in webcam; "
+            "1+ are USB / external cams. Only detected devices are shown."
+        ),
+    )
+    if st.sidebar.button("↻ Rescan cameras", width="stretch"):
+        _probe_cameras.clear()
+        st.rerun()
+
 # Enumerate physical monitors so the user can pick which display to
 # screen-capture for content segmentation. mss returns index 0 = "all
 # monitors combined" (usually not useful); indices 1..N are real displays.
@@ -350,6 +401,7 @@ if not pipeline_status.running:
         gaze=gaze_flag,
         sink=sink,
         preview=preview,
+        camera_index=int(_camera_index),
         video_file=_video_file,
         monitor_index=int(monitor_index),
         min_face_height_px=min_face_height_px,
